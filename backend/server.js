@@ -1,6 +1,9 @@
 
 const express = require("express");
 const cors = require("cors");
+require("dotenv").config();
+
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
 
 const app = express();
 
@@ -35,7 +38,7 @@ app.post("/api/ai/generate", async (req, res) => {
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    model: "qwen2.5:0.5b",
+                    model: OLLAMA_MODEL,
                     prompt: prompt.trim(),
                     stream: false
                 })
@@ -115,7 +118,7 @@ Requirements:
                     "Content-Type": "application/json"
                 },
                 body: JSON.stringify({
-                    model: "qwen2.5:0.5b",
+                    model: OLLAMA_MODEL,
                     prompt,
                     format: "json",
                     stream: false
