@@ -2,6 +2,9 @@
 const express = require("express");
 const cors = require("cors");
 require("dotenv").config();
+const { analyzeTopic } = require("./services/topicAnalyzer");
+const { planChapters } = require("./services/chapterPlanner");
+const { planDuration } = require("./services/durationPlanner");
 
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
 
@@ -171,6 +174,182 @@ Requirements:
         });
     }
 });
+
+
+// Analyze topic for educational video planning
+app.post("/api/ai/analyze-topic", async (req, res) => {
+    try {
+        const {
+            topic,
+            depth = "deep",
+            audience = "beginner",
+            language = "English"
+        } = req.body;
+
+        if (!topic || typeof topic !== "string" || !topic.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a valid topic."
+            });
+        }
+
+        const validDepths = ["quick", "deep", "masterclass"];
+
+        if (!validDepths.includes(depth)) {
+            return res.status(400).json({
+                success: false,
+                message: "Depth must be quick, deep, or masterclass."
+            });
+        }
+
+        const analysis = await analyzeTopic({
+            topic,
+            depth,
+            audience,
+            language
+        });
+
+        return res.json({
+            success: true,
+            analysis
+        });
+
+    } catch (error) {
+        console.error("Topic analysis error:", error.message);
+
+        return res.status(502).json({
+            success: false,
+            message: "Topic analysis failed. Please try again."
+        });
+    }
+});
+
+
+// Create a complete educational learning plan
+app.post("/api/ai/create-learning-plan", async (req, res) => {
+    try {
+        const {
+            topic,
+            depth = "deep",
+            audience = "beginner",
+            language = "English"
+        } = req.body;
+
+        if (!topic || typeof topic !== "string" || !topic.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a valid topic."
+            });
+        }
+
+        const validDepths = ["quick", "deep", "masterclass"];
+
+        if (!validDepths.includes(depth)) {
+            return res.status(400).json({
+                success: false,
+                message: "Depth must be quick, deep, or masterclass."
+            });
+        }
+
+        // Stage 1: Analyze the topic
+        const analysis = await analyzeTopic({
+            topic,
+            depth,
+            audience,
+            language
+        });
+
+        // Stage 2: Plan the chapters
+        const chapterPlan = await planChapters({
+            topic,
+            analysis,
+            depth,
+            audience,
+            language
+        });
+
+        return res.json({
+            success: true,
+            learningPlan: {
+                analysis,
+                chapterPlan
+            }
+        });
+
+    } catch (error) {
+        console.error("Learning plan error:", error.message);
+
+        return res.status(502).json({
+            success: false,
+            message: "Learning plan generation failed. Please try again."
+        });
+    }
+});
+
+
+// Create a duration-aware educational video learning plan
+app.post("/api/ai/plan-duration", async (req, res) => {
+    try {
+        const {
+            topic,
+            durationSeconds,
+            depth = "deep",
+            audience = "beginner",
+            language = "English"
+        } = req.body;
+
+        if (!topic || typeof topic !== "string" || !topic.trim()) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a valid topic."
+            });
+        }
+
+        if (
+            !Number.isInteger(durationSeconds) ||
+            durationSeconds < 30 ||
+            durationSeconds > 300
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Duration must be between 30 and 300 seconds."
+            });
+        }
+
+        // Stage 1: Analyze the topic
+        const analysis = await analyzeTopic({
+            topic,
+            depth,
+            audience,
+            language
+        });
+
+        // Stage 2: Create a duration-aware learning plan
+        const learningPlan = await planDuration({
+            topic,
+            analysis,
+            durationSeconds,
+            depth,
+            audience,
+            language
+        });
+
+        return res.json({
+            success: true,
+            analysis,
+            learningPlan
+        });
+
+    } catch (error) {
+        console.error("Duration planning error:", error.message);
+
+        return res.status(502).json({
+            success: false,
+            message: "Duration-aware learning plan generation failed. Please try again."
+        });
+    }
+});
+
 
 const PORT = 5000;
 
