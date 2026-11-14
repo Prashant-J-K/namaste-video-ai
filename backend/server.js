@@ -6,6 +6,8 @@ const { analyzeTopic } = require("./services/topicAnalyzer");
 const { planChapters } = require("./services/chapterPlanner");
 const { planDuration } = require("./services/durationPlanner");
 const { generateScript } = require("./services/scriptGenerator");
+const { generateStoryboard } = require("./services/storyboardGenerator");
+
 
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
 
@@ -383,6 +385,39 @@ app.post("/api/ai/generate-script", async (req, res) => {
         return res.status(502).json({
             success: false,
             message: "Educational script generation failed. Please try again."
+        });
+    }
+});
+
+
+app.post("/api/ai/generate-storyboard", async (req, res) => {
+    try {
+        const { script } = req.body;
+
+        if (
+            !script ||
+            typeof script !== "object" ||
+            Array.isArray(script)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a valid approved script."
+            });
+        }
+
+        const storyboard = generateStoryboard({ script });
+
+        return res.json({
+            success: true,
+            storyboard
+        });
+
+    } catch (error) {
+        console.error("Storyboard generation error:", error.message);
+
+        return res.status(400).json({
+            success: false,
+            message: error.message || "Storyboard generation failed."
         });
     }
 });
