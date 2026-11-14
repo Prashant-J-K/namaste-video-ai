@@ -5,6 +5,7 @@ require("dotenv").config();
 const { analyzeTopic } = require("./services/topicAnalyzer");
 const { planChapters } = require("./services/chapterPlanner");
 const { planDuration } = require("./services/durationPlanner");
+const { generateScript } = require("./services/scriptGenerator");
 
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
 
@@ -349,6 +350,43 @@ app.post("/api/ai/plan-duration", async (req, res) => {
         });
     }
 });
+
+
+// Generate an educational video narration script
+app.post("/api/ai/generate-script", async (req, res) => {
+    try {
+        const { learningPlan } = req.body;
+
+        if (
+            !learningPlan ||
+            typeof learningPlan !== "object" ||
+            Array.isArray(learningPlan)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a valid learning plan."
+            });
+        }
+
+        const script = await generateScript({
+            learningPlan
+        });
+
+        return res.json({
+            success: true,
+            script
+        });
+
+    } catch (error) {
+        console.error("Script generation error:", error.message);
+
+        return res.status(502).json({
+            success: false,
+            message: "Educational script generation failed. Please try again."
+        });
+    }
+});
+
 
 
 const PORT = 5000;
