@@ -1,13 +1,23 @@
 
 const express = require("express");
 const cors = require("cors");
+const path = require("path");
 require("dotenv").config();
+
 const { analyzeTopic } = require("./services/topicAnalyzer");
 const { planChapters } = require("./services/chapterPlanner");
 const { planDuration } = require("./services/durationPlanner");
 const { generateScript } = require("./services/scriptGenerator");
 const { generateStoryboard } = require("./services/storyboardGenerator");
 
+const {
+    generateStoryboardImages,
+    regenerateSceneImage
+} = require("./services/image/imageGenerator");
+
+const {
+    getImageProviderStatus
+} = require("./services/image/imageProvider");
 
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
 
@@ -15,6 +25,18 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+
+// Serve generated scene images.
+app.use(
+    "/generated/images",
+    express.static(
+        path.join(__dirname, "storage", "generated", "images"),
+        {
+            fallthrough: false,
+            index: false
+        }
+    )
+);
 
 // Health check
 app.get("/", (req, res) => {
@@ -57,22 +79,22 @@ app.post("/api/ai/generate", async (req, res) => {
 
         const data = await response.json();
 
-        res.json({
+        return res.json({
             success: true,
             result: data.response
         });
 
     } catch (error) {
-        console.error(error.message);
+        console.error("AI generation error:", error.message);
 
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: "AI generation failed."
         });
     }
 });
 
-// Generate video script and storyboard
+// Generate video script and storyboard (legacy endpoint)
 app.post("/api/ai/generate-video", async (req, res) => {
     try {
         const { topic } = req.body;
@@ -162,7 +184,7 @@ Requirements:
             });
         }
 
-        res.json({
+        return res.json({
             success: true,
             videoPlan
         });
@@ -170,7 +192,7 @@ Requirements:
     } catch (error) {
         console.error("Video generation error:", error.message);
 
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: "Video generation failed.",
             error: error.message
@@ -178,8 +200,7 @@ Requirements:
     }
 });
 
-
-// Analyze topic for educational video planning
+// Analyze topic
 app.post("/api/ai/analyze-topic", async (req, res) => {
     try {
         const {
@@ -227,8 +248,7 @@ app.post("/api/ai/analyze-topic", async (req, res) => {
     }
 });
 
-
-// Create a complete educational learning plan
+// Create learning plan
 app.post("/api/ai/create-learning-plan", async (req, res) => {
     try {
         const {
@@ -254,7 +274,6 @@ app.post("/api/ai/create-learning-plan", async (req, res) => {
             });
         }
 
-        // Stage 1: Analyze the topic
         const analysis = await analyzeTopic({
             topic,
             depth,
@@ -262,7 +281,6 @@ app.post("/api/ai/create-learning-plan", async (req, res) => {
             language
         });
 
-        // Stage 2: Plan the chapters
         const chapterPlan = await planChapters({
             topic,
             analysis,
@@ -289,8 +307,7 @@ app.post("/api/ai/create-learning-plan", async (req, res) => {
     }
 });
 
-
-// Create a duration-aware educational video learning plan
+// Duration-aware learning plan
 app.post("/api/ai/plan-duration", async (req, res) => {
     try {
         const {
@@ -319,7 +336,6 @@ app.post("/api/ai/plan-duration", async (req, res) => {
             });
         }
 
-        // Stage 1: Analyze the topic
         const analysis = await analyzeTopic({
             topic,
             depth,
@@ -327,7 +343,6 @@ app.post("/api/ai/plan-duration", async (req, res) => {
             language
         });
 
-        // Stage 2: Create a duration-aware learning plan
         const learningPlan = await planDuration({
             topic,
             analysis,
@@ -353,8 +368,7 @@ app.post("/api/ai/plan-duration", async (req, res) => {
     }
 });
 
-
-// Generate an educational video narration script
+// Generate educational script
 app.post("/api/ai/generate-script", async (req, res) => {
     try {
         const { learningPlan } = req.body;
@@ -389,10 +403,14 @@ app.post("/api/ai/generate-script", async (req, res) => {
     }
 });
 
-
+// Generate storyboard and automatically request scene images
 app.post("/api/ai/generate-storyboard", async (req, res) => {
     try {
-        const { script } = req.body;
+        const {
+            script,
+            platform = "youtube",
+            visualStyle
+        } = req.body;
 
         if (
             !script ||
@@ -405,15 +423,24 @@ app.post("/api/ai/generate-storyboard", async (req, res) => {
             });
         }
 
+        // Stage 1: Generate storyboard.
         const storyboard = generateStoryboard({ script });
+
+        // Stage 2: Automatically request images for every scene.
+        const imageGeneration = await generateStoryboardImages({
+            storyboard,
+            platform,
+            ...(visualStyle ? { visualStyle } : {})
+        });
 
         return res.json({
             success: true,
-            storyboard
+            storyboard,
+            imageGeneration
         });
 
     } catch (error) {
-        console.error("Storyboard generation error:", error.message);
+        console.error("Storyboard and image generation error:", error.message);
 
         return res.status(400).json({
             success: false,
@@ -422,8 +449,59 @@ app.post("/api/ai/generate-storyboard", async (req, res) => {
     }
 });
 
+// Check image provider configuration
+app.get("/api/ai/image-provider-status", (req, res) => {
+    return res.json({
+        success: true,
+        ...getImageProviderStatus()
+    });
+});
 
+// Regenerate one scene image
+app.post("/api/ai/regenerate-scene-image", async (req, res) => {
+    try {
+        const {
+            storyboard,
+            sceneNumber,
+            platform = "youtube",
+            visualStyle
+        } = req.body;
 
+        if (
+            !storyboard ||
+            typeof storyboard !== "object" ||
+            Array.isArray(storyboard) ||
+            !Number.isInteger(sceneNumber)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "A valid storyboard and integer scene number are required."
+            });
+        }
+
+        const image = await regenerateSceneImage({
+            storyboard,
+            sceneNumber,
+            platform,
+            ...(visualStyle ? { visualStyle } : {})
+        });
+
+        return res.json({
+            success: true,
+            image
+        });
+
+    } catch (error) {
+        console.error("Scene image regeneration error:", error.message);
+
+        return res.status(400).json({
+            success: false,
+            message: error.message || "Scene image regeneration failed."
+        });
+    }
+});
+
+// Start server
 const PORT = 5000;
 
 app.listen(PORT, () => {
