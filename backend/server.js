@@ -19,12 +19,20 @@ const {
     getImageProviderStatus
 } = require("./services/image/imageProvider");
 
-const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:0.5b";
+const {
+    generateStoryboardVoice
+} = require("./services/voice/voiceGenerator");
+
+const {
+    getVoiceProviderStatus
+} = require("./services/voice/voiceProvider");
+
+const OLLAMA_MODEL = process.env.OLLAMA_MODEL || "qwen2.5:1.5b";
 
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 // Serve generated scene images.
 app.use(
@@ -38,9 +46,21 @@ app.use(
     )
 );
 
+// Serve generated voice audio.
+app.use(
+    "/generated/audio",
+    express.static(
+        path.join(__dirname, "storage", "generated", "audio"),
+        {
+            fallthrough: false,
+            index: false
+        }
+    )
+);
+
 // Health check
 app.get("/", (req, res) => {
-    res.json({
+    return res.json({
         success: true,
         message: "NamasteVideo AI Backend is running!"
     });
@@ -403,13 +423,15 @@ app.post("/api/ai/generate-script", async (req, res) => {
     }
 });
 
-// Generate storyboard and automatically request scene images
+// Generate storyboard, scene images and voice audio automatically.
 app.post("/api/ai/generate-storyboard", async (req, res) => {
     try {
         const {
             script,
             platform = "youtube",
-            visualStyle
+            visualStyle,
+            voiceSettings = {},
+            pronunciationDictionary = []
         } = req.body;
 
         if (
@@ -433,14 +455,25 @@ app.post("/api/ai/generate-storyboard", async (req, res) => {
             ...(visualStyle ? { visualStyle } : {})
         });
 
+        // Stage 3: Automatically request voice audio for every scene.
+        const voiceGeneration = await generateStoryboardVoice({
+            storyboard,
+            voiceSettings,
+            pronunciationDictionary
+        });
+
         return res.json({
             success: true,
             storyboard,
-            imageGeneration
+            imageGeneration,
+            voiceGeneration
         });
 
     } catch (error) {
-        console.error("Storyboard and image generation error:", error.message);
+        console.error(
+            "Storyboard, image and voice generation error:",
+            error.message
+        );
 
         return res.status(400).json({
             success: false,
@@ -501,8 +534,57 @@ app.post("/api/ai/regenerate-scene-image", async (req, res) => {
     }
 });
 
+// Check voice provider configuration
+app.get("/api/ai/voice-provider-status", (req, res) => {
+    return res.json({
+        success: true,
+        ...getVoiceProviderStatus()
+    });
+});
+
+// Generate voice audio for an existing storyboard
+app.post("/api/ai/generate-voice", async (req, res) => {
+    try {
+        const {
+            storyboard,
+            voiceSettings = {},
+            pronunciationDictionary = []
+        } = req.body;
+
+        if (
+            !storyboard ||
+            typeof storyboard !== "object" ||
+            Array.isArray(storyboard)
+        ) {
+            return res.status(400).json({
+                success: false,
+                message: "Please provide a valid storyboard."
+            });
+        }
+
+        const voiceGeneration = await generateStoryboardVoice({
+            storyboard,
+            voiceSettings,
+            pronunciationDictionary
+        });
+
+        return res.json({
+            success: true,
+            voiceGeneration
+        });
+
+    } catch (error) {
+        console.error("Voice generation error:", error.message);
+
+        return res.status(400).json({
+            success: false,
+            message: error.message || "Voice generation failed."
+        });
+    }
+});
+
 // Start server
-const PORT = 5000;
+const PORT = process.env.PORT || 5000;
 
 app.listen(PORT, () => {
     console.log(`NamasteVideo AI Backend running on port ${PORT}`);
